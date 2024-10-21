@@ -61,7 +61,7 @@ Record randomRecord(){
 }
 
 void printRecord(Record record){
-    printf("(%d,%s,%s,%s)\n",record.id,record.name,record.surname,record.city);
+    printf("(%d, %s, %s, %s)\n",record.id,record.name,record.surname,record.city);
 
 }
 

@@ -17,6 +17,7 @@
 
 int HP_CreateFile(char *fileName){
     int error = BF_CreateFile(fileName);
+   
     //εάν πχ το αρχείο υπάρχει ήδη
     if(error != BF_OK){
       BF_PrintError(error);
@@ -33,9 +34,8 @@ int HP_CreateFile(char *fileName){
       //Δημιουργία block
       BF_Block* block;
       BF_Block_Init(&block);
-      BF_AllocateBlock(file_desc, block);
-
       //Δέσμευση block στο αρχείο
+      BF_AllocateBlock(file_desc, block);
       
       void* data = BF_Block_GetData(block);
       HP_info hp_info;
@@ -48,7 +48,6 @@ int HP_CreateFile(char *fileName){
       hp_info.records_per_block = (BF_BLOCK_SIZE - sizeof(HP_block_info) )/ sizeof(Record);
 
       memcpy(data, &hp_info , sizeof(hp_info));
-
 
       BF_Block_SetDirty(block);
       BF_UnpinBlock(block);
@@ -88,7 +87,6 @@ HP_info* HP_OpenFile(char *fileName, int *file_desc){
 
 int HP_CloseFile(int file_desc,HP_info* hp_info ){
   int error;
-
   for(int i = 0; i <= hp_info->last_block; i++){
     BF_Block* block;
     BF_Block_Init(&block);
@@ -115,7 +113,6 @@ int HP_CloseFile(int file_desc,HP_info* hp_info ){
 int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
 
     //δεν χρειάζεται Open file γίνεται στο main
-
 
     BF_Block* new_block;
     BF_Block_Init(&new_block);
@@ -150,11 +147,15 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
       
       BF_Block_SetDirty(new_block);
       BF_UnpinBlock(new_block);
+      BF_Block_Destroy(&new_block);
+
       return hp_info->last_block;
 
     }
 
     else{
+      //αν δεν είναι το πρώτο block που εισάγεται , τότε πρέπει να έχουμε πρ΄σοβαση και σρο προηγούμενο block
+      //ωστε να ξέρουμε αν υπάρχει χώρος για νέα εγγραφή
       BF_Block* last_block;
       BF_Block_Init(&last_block);
 
@@ -171,6 +172,7 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
       if(last_block_info->current_block_capacity < sizeof(Record)){
         //φτιάχνουμε νεο μπλοκ στο αρχείο
         error = BF_AllocateBlock(file_desc, new_block);
+
         if(error != BF_OK){
           BF_PrintError(error);
           return -1;
@@ -195,15 +197,44 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
         last_block_info->number_of_records ++;
         last_block_info->current_block_capacity -= sizeof(Record);
       }
-    
+
       BF_UnpinBlock(last_block);
+      BF_Block_Destroy(&last_block);
     }
-    return hp_info->last_block;
     BF_Block_SetDirty(new_block);
     BF_UnpinBlock(new_block);
+    BF_Block_Destroy(&new_block);
+    
+    return hp_info->last_block;
 }
 
 int HP_GetAllEntries(int file_desc,HP_info* hp_info, int value){    
-    return -1;
+
+    for(int i = 1; i < hp_info->number_of_blocks; i++){
+      BF_Block* block;
+      BF_Block_Init(&block);
+
+      int error = BF_GetBlock(file_desc, i, block);
+      if(error != BF_OK){
+        BF_PrintError(error);
+        return -1;
+      }
+
+      else{
+        void* data = BF_Block_GetData(block);
+        HP_block_info* block_info = (HP_block_info*) (data + BF_BLOCK_SIZE - sizeof(HP_block_info));
+        int num = block_info->number_of_records;
+
+        for(int j = 0; j < num; j++){
+          Record* record = (Record*) (data + j * sizeof(Record));
+          if(record->id == value){
+            printRecord(*record);
+          }
+        }
+      }
+      BF_UnpinBlock(block);
+      BF_Block_Destroy(&block);
+    }
+    return hp_info->number_of_blocks;
 }
 
