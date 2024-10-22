@@ -51,6 +51,7 @@ int HP_CreateFile(char *fileName){
 
       BF_Block_SetDirty(block);
       BF_UnpinBlock(block);
+      BF_Block_Destroy(&block);
       BF_CloseFile(file_desc);
 
       //επιστρέφει BF_OK
@@ -79,6 +80,7 @@ HP_info* HP_OpenFile(char *fileName, int *file_desc){
        HP_info* hp_info = (HP_info*) data;
 
       BF_UnpinBlock(block);
+      BF_Block_Destroy(&block);
       return hp_info;
     }
 
@@ -196,6 +198,7 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
         error = BF_GetBlockCounter(file_desc, &id);
         if(error != BF_OK){
           BF_PrintError(error);
+          return -1;
         }
 
         //κραταμε τον αριθμο του τελευταιου μπλοκ(συνολικα μπλοκ - 1, αφου η αριθμηση ξεκιναει απο το 0)
