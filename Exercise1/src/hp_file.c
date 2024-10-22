@@ -120,7 +120,7 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
     int error;
     int block_id = hp_info->last_block;
 
-    //αν είναι το πρώτο block μετα το block με τα μεταδεδομένα
+    //αν εχουμε μονο ενα block, αυτο με τα μεταδεδομενα
     if(block_id == 0 ){
 
       //φτιάχνουμε νεο μπλοκ στο αρχείο
@@ -130,11 +130,15 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
         return -1;
       }
 
+      //αντιγραφουμε την εγγραφη στην αρχη του καινουργιου μπλοκ
       memcpy(BF_Block_GetData(new_block), &record, sizeof(Record));
+
+      //ενημερωνουμε το hp_info
       hp_info->number_of_blocks ++;
       hp_info->last_block = 1;
       hp_info->first_block_with_records = new_block;
 
+      //ενημερωση στοιχειων του block
       HP_block_info block_info;
       block_info.number_of_records = 1;
       block_info.current_block_capacity = BF_BLOCK_SIZE - sizeof(Record) - sizeof(HP_block_info);
@@ -144,7 +148,7 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
       //sizeof(HP_block_info) bytes τη δομη HP_block_info
       memcpy(BF_Block_GetData(new_block) + BF_BLOCK_SIZE - sizeof(block_info), &block_info, sizeof(HP_block_info));
 
-      
+      //αφου τελειωσαμε με την εισαγωγη δεν χρειαζομαστε αλλο το μπλοκ
       BF_Block_SetDirty(new_block);
       BF_UnpinBlock(new_block);
       BF_Block_Destroy(&new_block);
@@ -153,14 +157,20 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
 
     }
 
+    //αν δεν είναι το πρώτο block που εισάγεται , τότε πρέπει να έχουμε πρ΄σοβαση και στο προηγούμενο block
+    //ωστε να ξέρουμε αν υπάρχει χώρος για νέα εγγραφή
     else{
-      //αν δεν είναι το πρώτο block που εισάγεται , τότε πρέπει να έχουμε πρ΄σοβαση και σρο προηγούμενο block
-      //ωστε να ξέρουμε αν υπάρχει χώρος για νέα εγγραφή
       BF_Block* last_block;
       BF_Block_Init(&last_block);
 
 
-      BF_GetBlock(file_desc, block_id, last_block);
+      error = BF_GetBlock(file_desc, block_id, last_block);
+      if(error != BF_OK){
+        BF_PrintError(error);
+        return -1;
+      }
+
+      //τα δεδομενα του τελευταιου μπλοκ
       void* data = BF_Block_GetData(last_block);
 
       //βρίσκουμε το struct με τις πληροφορίες για το block για να δούμε εάν χωράει νέα εγγραφή
@@ -170,41 +180,62 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
 
       //αν δεν χωράει άλλη εγγραφή στο block
       if(last_block_info->current_block_capacity < sizeof(Record)){
+        
         //φτιάχνουμε νεο μπλοκ στο αρχείο
         error = BF_AllocateBlock(file_desc, new_block);
-
         if(error != BF_OK){
           BF_PrintError(error);
           return -1;
         }
 
+        //αντιγραφουμε την εγγραφη στην αρχη του νεου μπλοκ
         memcpy(BF_Block_GetData(new_block), &record, sizeof(Record));
         hp_info->number_of_blocks ++;
-        hp_info->last_block ++;
+
+        int id;
+        error = BF_GetBlockCounter(file_desc, &id);
+        if(error != BF_OK){
+          BF_PrintError(error);
+        }
+
+        //κραταμε τον αριθμο του τελευταιου μπλοκ(συνολικα μπλοκ - 1, αφου η αριθμηση ξεκιναει απο το 0)
+        hp_info->last_block = id - 1;
 
         HP_block_info block_info;
         block_info.number_of_records = 1;
         block_info.current_block_capacity = BF_BLOCK_SIZE - sizeof(Record) - sizeof(HP_block_info);
         block_info.next_block = NULL;
 
+        //ενημερωση next block του προηγουμενου
+        last_block_info->next_block = new_block;
+
         //παιρνουμε τη διευθυνση των δεδομενων του μπλοκ, παμε στο τελος του και τοποθετουμε στα τελευταια 
         //sizeof(HP_block_info) bytes τη δομη HP_block_info
         memcpy(BF_Block_GetData(new_block) + BF_BLOCK_SIZE - sizeof(block_info), &block_info, sizeof(HP_block_info));
 
+        //αφου τελειωσουμε με την εισαγωγη, δεν χρειαζομαστε πια το μπλοκ
+        BF_Block_SetDirty(last_block);
+        BF_Block_SetDirty(new_block);
+        BF_UnpinBlock(last_block);
+        BF_UnpinBlock(new_block);
+
       }
+
+      //αν εχουμε χωρο στο τωρινο μπλοκ, προσθετουμε την εγγραφη
       else{
+        //αντιγραφη εγγραφης μετα την πρωτη εγγραφη
         memcpy(data + ((last_block_info->number_of_records) * sizeof(Record) ) , &record, sizeof(Record));
         last_block_info->number_of_records ++;
         last_block_info->current_block_capacity -= sizeof(Record);
+
+        BF_Block_SetDirty(last_block); //αφου αλλαξαμε το last block
+        BF_UnpinBlock(last_block); 
       }
 
-      BF_UnpinBlock(last_block);
+      BF_Block_Destroy(&new_block);
       BF_Block_Destroy(&last_block);
     }
-    BF_Block_SetDirty(new_block);
-    BF_UnpinBlock(new_block);
-    BF_Block_Destroy(&new_block);
-    
+
     return hp_info->last_block;
 }
 
