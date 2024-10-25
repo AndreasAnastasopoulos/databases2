@@ -27,37 +27,47 @@ int HP_CreateFile(char *fileName){
     else{
       int file_desc;
       int error = BF_OpenFile(fileName, &file_desc);
+
       if(error != BF_OK){
         BF_PrintError(error);
         return -1;
       }
-      //Δημιουργία block
+
+      //Δημιουργία δεικτη σε block
+      //το block δεν ειναι τιποτα αλλο παρα ενας δεικτης στα δεδομενα ενος μπλοκ
+      //που τον χρησιμοποιουμε για να εχουμε προσβαση σε αυτα 
+      //οταν δεν τον χρειαζομαστε αλλο πρεπει να τον καταστρεψουμε
       BF_Block* block;
+      
       BF_Block_Init(&block);
+
       //Δέσμευση block στο αρχείο
       BF_AllocateBlock(file_desc, block);
       
       void* data = BF_Block_GetData(block);
-      HP_info hp_info;
-      hp_info.last_block = 0;
-      hp_info.number_of_blocks = 0;
-      hp_info.first_block_with_records = NULL;
 
-      //Υπολογισμός πόσες εγγραφές χωράει ένα block , αφαιρώντας το μέγεθος της δομής HP_block_info
+      HP_info hp_info;
+      hp_info.last_block = 0; //ο αριθμος του τελευταιου block του αρχειου
+      hp_info.number_of_blocks = 0; //πληθος των blocks
+      hp_info.first_block_with_records = NULL; //το πρωτο block που περιεχει εγγραφες
+
+      //υπολογισμος του πόσες εγγραφές χωράει ένα block, αφαιρώντας το μέγεθος της δομής HP_block_info
       //το οποίο βρίσκεται στο τέλος ΚΑΘΕ block
       hp_info.records_per_block = (BF_BLOCK_SIZE - sizeof(HP_block_info) )/ sizeof(Record);
 
+      //αντιγραφή των δεδομένων της δομής HP_info στο block 0 με τα μεταδεδομενα
       memcpy(data, &hp_info , sizeof(hp_info));
 
-      BF_Block_SetDirty(block);
-      BF_UnpinBlock(block);
-      BF_Block_Destroy(&block);
+      BF_Block_SetDirty(block); //αφου τροποποιηθηκε το block, το κανουμε dirty
+      BF_UnpinBlock(block); //δεν το χρειαζομαστε πλεον
+      BF_Block_Destroy(&block); //καταστροφη του δεικτη
       BF_CloseFile(file_desc);
 
       //επιστρέφει BF_OK
       return error;
     }
 }
+
 
 HP_info* HP_OpenFile(char *fileName, int *file_desc){
     int error = BF_OpenFile(fileName, file_desc);
@@ -75,11 +85,14 @@ HP_info* HP_OpenFile(char *fileName, int *file_desc){
       BF_UnpinBlock(block);
       return NULL;
     }
+
     else{
       char* data = BF_Block_GetData(block);
-       HP_info* hp_info = (HP_info*) data;
 
-      BF_UnpinBlock(block);
+      //αποθηκευση των μεταδεδομενων στη δομη hp_info
+      HP_info* hp_info = (HP_info*) data;
+
+      BF_UnpinBlock(block); //μονο unpin χωρις set_dirty αφου δεν αλλαξαμε κατι
       BF_Block_Destroy(&block);
       return hp_info;
     }
@@ -89,11 +102,12 @@ HP_info* HP_OpenFile(char *fileName, int *file_desc){
 
 int HP_CloseFile(int file_desc,HP_info* hp_info ){
   int error;
-  for(int i = 0; i <= hp_info->last_block; i++){
-    BF_Block* block;
-    BF_Block_Init(&block);
-    error = BF_GetBlock(file_desc, i, block);
+  BF_Block* block;
+  BF_Block_Init(&block);
 
+  for(int i = 0; i <= hp_info->last_block; i++){
+    
+    error = BF_GetBlock(file_desc, i, block);
     if(error != BF_OK){
       BF_PrintError(error);
       return -1;
@@ -101,12 +115,18 @@ int HP_CloseFile(int file_desc,HP_info* hp_info ){
 
     else{
       BF_UnpinBlock(block);
-      BF_Block_Destroy(&block);
     }
 
   }
+
+  BF_Block_Destroy(&block);
   
   error = BF_CloseFile(file_desc);
+  if(error != BF_OK){
+      BF_PrintError(error);
+      return -1;
+  }
+
   return 0;
 }
 
@@ -123,7 +143,7 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
     int block_id = hp_info->last_block;
 
     //αν εχουμε μονο ενα block, αυτο με τα μεταδεδομενα
-    if(block_id == 0 ){
+    if(block_id == 0){
 
       //φτιάχνουμε νεο μπλοκ στο αρχείο
       error = BF_AllocateBlock(file_desc, new_block);
@@ -226,8 +246,8 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
 
       //αν εχουμε χωρο στο τωρινο μπλοκ, προσθετουμε την εγγραφη
       else{
-        //αντιγραφη εγγραφης μετα την πρωτη εγγραφη
-        memcpy(data + ((last_block_info->number_of_records) * sizeof(Record) ) , &record, sizeof(Record));
+        //αντιγραφη εγγραφης μετα την τελευταια εγγραφη
+        memcpy(data + ((last_block_info->number_of_records) * sizeof(Record) ), &record, sizeof(Record));
         last_block_info->number_of_records ++;
         last_block_info->current_block_capacity -= sizeof(Record);
 
@@ -244,9 +264,10 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
 
 int HP_GetAllEntries(int file_desc,HP_info* hp_info, int value){    
 
+    BF_Block* block;
+    BF_Block_Init(&block);
+
     for(int i = 1; i < hp_info->number_of_blocks; i++){
-      BF_Block* block;
-      BF_Block_Init(&block);
 
       int error = BF_GetBlock(file_desc, i, block);
       if(error != BF_OK){
@@ -261,14 +282,17 @@ int HP_GetAllEntries(int file_desc,HP_info* hp_info, int value){
 
         for(int j = 0; j < num; j++){
           Record* record = (Record*) (data + j * sizeof(Record));
+          
           if(record->id == value){
             printRecord(*record);
           }
         }
       }
+
       BF_UnpinBlock(block);
-      BF_Block_Destroy(&block);
     }
+    BF_Block_Destroy(&block);
+    
     return hp_info->number_of_blocks;
 }
 

@@ -12,6 +12,7 @@ typedef struct {
     BF_Block* first_block_with_records;
 } HP_info;
 
+//οι πληροφοριες γισ καθε block
 typedef struct {
     int number_of_records;
     int current_block_capacity;
