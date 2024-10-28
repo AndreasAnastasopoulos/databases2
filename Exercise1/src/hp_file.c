@@ -61,7 +61,8 @@ int HP_CreateFile(char *fileName){
       BF_Block_SetDirty(block); //αφου τροποποιηθηκε το block, το κανουμε dirty
       BF_UnpinBlock(block); //δεν το χρειαζομαστε πλεον
       BF_Block_Destroy(&block); //καταστροφη του δεικτη
-      BF_CloseFile(file_desc);
+
+      BF_CloseFile(file_desc); //κλεισιμο του αρχειου
 
       //επιστρέφει BF_OK
       return error;
@@ -103,22 +104,9 @@ HP_info* HP_OpenFile(char *fileName, int *file_desc){
 int HP_CloseFile(int file_desc,HP_info* hp_info ){
   int error;
   BF_Block* block;
+  //δεν χρειαζεται να κανουμε unpin τσ blocks γιατί η κάθε λειτουργία πχ insert θα κάνει unpin οταν τελειώσει
+  //(στις υλοποιήσεις των δικών μας συναρτήσεων κάνουμε εμείς το unpin)	
   BF_Block_Init(&block);
-
-  for(int i = 0; i <= hp_info->last_block; i++){
-    
-    error = BF_GetBlock(file_desc, i, block);
-    if(error != BF_OK){
-      BF_PrintError(error);
-      return -1;
-    }
-
-    else{
-      BF_UnpinBlock(block);
-    }
-
-  }
-
   BF_Block_Destroy(&block);
   
   error = BF_CloseFile(file_desc);
@@ -261,6 +249,7 @@ int HP_InsertEntry(int file_desc, HP_info* hp_info, Record record){
 
     return hp_info->last_block;
 }
+
 
 int HP_GetAllEntries(int file_desc,HP_info* hp_info, int value){    
 
