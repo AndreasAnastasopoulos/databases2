@@ -174,7 +174,7 @@ int BP_InsertEntry(int file_desc, BPLUS_INFO *bplus_info, Record record)
 
 int BP_GetEntry(int file_desc, BPLUS_INFO *header_info, int id, Record **result)
 {
-  // Παίρνουμε το μπλοκ που βρίσκεται στη ρίζα
+  // Παίρνουμε το μπλοκ που βρίσκεται στη ρίζα.
   BF_Block *block;
   BF_Block_Init(&block);
 
